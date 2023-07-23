@@ -1,0 +1,137 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'This template deploys a basic code pipeline for a single region'
+Parameters:
+  CodebuildRoleArn:
+    Type: String
+    Description: Arn for codebuild role
+  CloudformationRoleArn:
+    Type: String
+    Description: Arn for cloudformation role
+  CodepipelineRoleArn:
+    Type: String
+    Description: Arn for codepipeline role
+  S3ArtifactStore:
+    Type: String
+    Description: Name of S3 bucket
+  S3BuildsPrefix:
+    Type: String
+    Default: builds/lambdas
+    Description: Location of lambda builds in S3 Bucket
+  TemplateFileName:
+    Type: String
+    Default: template_file.yaml
+    Description: Name of the cloudformation template created by codebuild
+  GithubConnectionArn:
+    Type: String
+    Description: This arn is created in codepipeline connections through the console
+  GithubRepositoryName:
+    Type: String
+    Description: Path of the Github repository
+  GithubBranch:
+    Type: String
+    Default: main
+    Description: Name of the branch
+
+Resources:
+
+  # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-codebuild-project.html
+  # Code build is a container that you can use to run commands
+  # specified in a buildspec.yaml file in your codebase.
+  # It can be used for building and testing code.
+  CodeBuild:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: "lambda-codebuild"
+      # artifacts are settings for files outputted after running this codebuild e.g. an executable file
+      Artifacts:
+        Type: CODEPIPELINE
+      # environment specified the compute environment for the container
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:2.0
+        ImagePullCredentialsType: CODEBUILD
+        Type: LINUX_CONTAINER
+        PrivilegedMode: true
+        # environmental variables will be available in your container
+        EnvironmentVariables:
+          - Name: AWS_DEFAULT_REGION
+            Value: !Ref "AWS::Region"
+          - Name: AWS_ACCOUNT_ID
+            Value: !Ref "AWS::AccountId"
+          - Name: S3_BUCKET # this is the s3 bucket where lambda code will be uploaded to
+            Value: !Ref S3ArtifactStore # Ref commands refer to parameters
+          - Name: S3_BUILDS_PREFIX # this is the s3 location where the code will be uploaded to
+            Value: !Ref S3BuildsPrefix
+          - Name: TEMPLATE_FILE_NAME # this is the name for the cloudformation file that will define lambda (explained in article)
+            Value: !Ref TemplateFileName
+      ServiceRole: !Ref CodebuildRoleArn # this role was created earlier. The codebuild project will take on this role
+      Source: # specifies the location of code for this project
+        Type: CODEPIPELINE # our source code comes from the code pipeline
+        # a file named buildspec.yaml should be in your codebase in the main directory. It describes the commands run in the codebuild container
+        BuildSpec: buildspec.yaml
+
+  # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-codepipeline-pipeline.html
+  # code pipeline defines a set of stages that describe how code changes go through a release process
+  Codepipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: "lambda-pipeline"
+      ArtifactStore: # specifies the s3 bucket where artifacts (files) from this pipeline should be stored
+        Type: S3
+        Location: !Ref S3ArtifactStore
+      RoleArn: !Ref CodepipelineRoleArn
+      # the following types of stages can be defined: (source, build, test, deploy, invoke, approval)
+      # each stage can have multiple actions
+      Stages:
+        -
+          Name: Source #this is the first stage
+          Actions:
+            # this action connects to Github and gets source code from your repository
+            - Name: ApplicationSource
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: CodeStarSourceConnection
+                Version: '1'
+              Configuration:
+                ConnectionArn: !Ref GithubConnectionArn
+                FullRepositoryId: !Ref GithubRepositoryName
+                BranchName: !Ref GithubBranch
+                OutputArtifactFormat: "CODE_ZIP"
+              # output artifact are your source code files
+              OutputArtifacts:
+                - Name: SourceArtifact
+        -
+          Name: Build # this is the second stage
+          Actions:
+            - Name: BuildProject # it uses the codebuild project above to run the buildspec.yaml file in your code
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: '1'
+              Configuration:
+                ProjectName: !Ref CodeBuild
+              InputArtifacts:
+                - Name: SourceArtifact
+               # these are the resulting files from codebuild
+              OutputArtifacts:
+                - Name: BuildArtifact
+        -
+          Name: Dev # this is the third stage
+          Actions:
+            - Name: Deploy # we release the changes from the previous step using cloudformation
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CloudFormation
+                Version: '1'
+              Configuration:
+                StackName: !Sub "lambda-stack"
+                ActionMode: REPLACE_ON_FAILURE
+                Capabilities: CAPABILITY_IAM,CAPABILITY_NAMED_IAM
+                RoleArn: !Ref CloudformationRoleArn
+                TemplatePath: !Sub "BuildArtifact::${TemplateFileName}"
+                TemplateConfiguration: BuildArtifact::config.json
+              InputArtifacts:
+                - Name: BuildArtifact

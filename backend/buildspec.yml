@@ -1,0 +1,18 @@
+
+version: 0.2
+
+phases:
+  build:
+    commands:
+      - echo "Changing into source directory $CODEBUILD_SRC_DIR"
+      - cd $CODEBUILD_SRC_DIR
+      - echo "Installing dependencies into src file"
+      - pip install -t /src -r requirements.txt
+      - echo "Packaging cloudformation template"
+      - aws cloudformation package --template-file cfn.yaml --s3-bucket $S3_BUCKET \
+                --s3-prefix $S3_BUILDS_PREFIX --output-template-file $TEMPLATE_FILE_NAME
+artifacts:
+  files:
+    - '$TEMPLATE_FILE_NAME'
+    - '*config.json'
+  discard-paths: yes

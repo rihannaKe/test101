@@ -1,0 +1,26 @@
+[
+  {
+    "ParameterKey": "CodebuildRoleArn",
+    "ParameterValue": "arn:aws:iam::211415518029:role/role-example-3"
+  },
+  {
+    "ParameterKey": "CloudformationRoleArn",
+    "ParameterValue": "arn:aws:iam::211415518029:role/role-example"
+  },
+  {
+    "ParameterKey": "CodepipelineRoleArn",
+    "ParameterValue": "arn:aws:iam::211415518029:role/role-example-2"
+  },
+  {
+    "ParameterKey": "S3ArtifactStore",
+    "ParameterValue": "mytechnicaltestp4"
+  },
+  {
+    "ParameterKey": "GithubConnectionArn",
+    "ParameterValue": "my_github_connection"
+  },
+  {
+    "ParameterKey": "GithubRepositoryName",
+    "ParameterValue": "test101"
+  }
+]
